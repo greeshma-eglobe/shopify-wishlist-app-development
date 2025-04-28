@@ -1,0 +1,117 @@
+<!-- Include JS and CSS -->
+<link rel="stylesheet" type="text/css" href="{{ 'wishlist.css' | asset_url }}">
+
+{% schema %}
+{
+  "name": "Wishlist icon",
+  "target": "section",
+  "settings": [
+    {
+      "type": "product",
+      "id": "product",
+      "label": "Product",
+      "autofill": true
+    },
+    {
+      "type": "text",
+      "id": "text",
+      "label": "Text",
+      "default": "Add to wishlist"
+    }
+  ]
+}
+{% endschema %}
+
+<div class="wishlist-pdp">
+  <button type="button" onclick="addToWishlist(this)">
+    <svg
+      class="wishlist-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06 7.78 7.78 7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+    </svg>
+    {% if block.settings.text != blank %}
+      <span class="wishlist-inspire__icon--text">{{ block.settings.text }}</span>
+    {% endif %}
+  </button>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const customerId = "{{ customer.id }}";
+  const productId = "{{ 'gid://shopify/Product/' | append: product.id }}";
+  const shop = "{{ shop.permanent_domain }}";
+  let variantId = 'gid://shopify/ProductVariant/' + document.querySelector('[name="id"]')?.value;
+
+  function checkWishlistStatus(variantId) {
+    if (!customerId || !productId || !shop || !variantId) {
+      console.error("Missing required data:", { customerId, productId, shop, variantId });
+      return;
+    }
+    fetch(`https://wishlist-icon.onrender.com/api/wishlist?customerId=${customerId}&productId=${productId}&shop=${shop}&variantId=${variantId}`)
+      .then(response => response.json())
+      .then(result => {
+        let button = document.querySelector(".wishlist-pdp button");
+        if (result.wishlist.length > 0) {
+          button.dataset.wishlisted = "true";
+          button.querySelector("svg").classList.add("wishlisted");
+        } else {
+          button.dataset.wishlisted = "false";
+          button.querySelector("svg").classList.remove("wishlisted");
+        }
+      })
+      .catch(error => console.error('Error fetching data', error));
+  }
+
+  checkWishlistStatus(variantId);
+
+  document.querySelectorAll('[name="id"]').forEach(function (variantSelector) {
+    variantSelector.addEventListener("change", function () {
+      variantId = this.value;
+      checkWishlistStatus('gid://shopify/ProductVariant/' + variantId);
+    });
+  });
+});
+
+function addToWishlist(button) {
+  let variantId = 'gid://shopify/ProductVariant/' + document.querySelector('[name="id"]')?.value || null;
+
+  {% unless customer %}
+  alert('Please login to add to wishlist');
+  return;
+  {% endunless %}
+
+  let wishlisted = button.dataset.wishlisted === "true";
+  const action = wishlisted ? "DELETE" : "CREATE";
+
+  fetch('https://wishlist-icon.onrender.com/api/wishlist', {
+    method: "POST",
+    body: JSON.stringify({
+      customerId: "{{ customer.id }}",
+      productId: "{{ 'gid://shopify/Product/' | append: product.id }}",
+      shop: "{{ shop.permanent_domain }}",
+      action,
+      variantId
+    }),
+  })
+    .then(response => response.json())
+    .then(result => {
+      let button = document.querySelector(".wishlist-pdp button");
+      if (result.method === 'CREATE') {
+        button.dataset.wishlisted = "true";
+        button.querySelector("svg").classList.add("wishlisted");
+      } else {
+        button.dataset.wishlisted = "false";
+        button.querySelector("svg").classList.remove("wishlisted");
+      }
+    })
+    .catch(console.error);
+}
+</script>
+
+

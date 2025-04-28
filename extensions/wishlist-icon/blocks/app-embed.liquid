@@ -1,0 +1,358 @@
+<!-- Include JS and CSS -->
+<link rel="stylesheet" type="text/css" href="{{ 'wishlist.css' | asset_url }}">
+
+{% schema %}
+{
+  "name": "Wishlist",
+  "target": "body",
+  "settings": []
+}
+{% endschema %}
+
+<script>
+  window.addEventListener("load", function () {
+      const customerId = "{{ customer.id }}";
+      const shop = "{{ shop.permanent_domain }}";
+      function addWishlistButtons() {
+        const productTitles = document.querySelectorAll(".card__heading");
+        let productIds = [];
+  
+     // Preprocess products into a map (outside the main loop)
+  const productVariants = {};
+  {% for product in collections.all.products %}
+    productVariants["{{ product.id }}"] = "{{ product.variants.first.id }}";
+  {% endfor %}
+  
+  // Now loop through product titles
+  productTitles.forEach((title) => {
+    const idAttribute = title.id;
+    const match = idAttribute.match(/-(\d+)$/);
+  
+    if (match) {
+      const productId = match[1];
+      productIds.push(productId);
+  
+      // Avoid duplicate buttons
+      if (title.querySelector(".wishlist-button")) return;
+  
+      // Get the variant ID from the preprocessed map
+      const variantId = productVariants[productId] || null;
+  
+      const wishlistButton = document.createElement("button");
+      wishlistButton.classList.add("wishlist-button");
+      wishlistButton.dataset.productId = productId;
+      wishlistButton.dataset.variantId = variantId; // Assign default variant ID
+  
+      wishlistButton.addEventListener("click", toggleWishlist);
+  
+      const wishlistSVG = document.createElement("span");
+      wishlistSVG.innerHTML = `
+        <svg class="wishlist-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" 
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06 7.78 7.78 7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+        </svg>`;
+  
+      wishlistButton.appendChild(wishlistSVG);
+      title.appendChild(wishlistButton);
+    }
+  });
+  
+        if (productIds.length > 0) {
+          const formattedProductIds = productIds.map(id => `gid://shopify/Product/${id}`);
+          fetchWishlistStatus(formattedProductIds);
+        }
+      }
+  
+      function fetchWishlistStatus(productIds) {
+        fetch(`https://wishlist-icon.onrender.com/api/plpwishlist?customerId=${customerId}&shop=${shop}&productIds=${productIds.join(',')}`)
+          .then(response => response.json())
+          .then(result => {
+            if (!result || !result.wishlist) return;
+  
+            result.wishlist.forEach((item) => {
+              console.log(item);
+              let currentProductId = item.productId.match(/(\d+)$/)[0];;
+              console.log(currentProductId);
+              let productCard = document.querySelector(`.card__heading[id*="${currentProductId}"]`);
+              if (productCard) {
+                let button = productCard.querySelector(".wishlist-button svg");
+                if (button) {
+                  button.classList.add("wishlisted");
+                }
+              }
+            });
+          })
+          .catch(error => console.error("Error fetching wishlist status:", error));
+      }
+  
+      function toggleWishlist(event) {
+        const button = event.currentTarget;
+        const productId = button.dataset.productId;
+        const variantId = 'gid://shopify/ProductVariant/'+ button.dataset.variantId; 
+        const isWishlisted = button.querySelector("svg").classList.contains("wishlisted");
+        const action = isWishlisted ? "DELETE" : "CREATE";
+  
+        fetch('https://wishlist-icon.onrender.com/api/plpwishlist', {
+            method: "POST",
+            body: JSON.stringify({
+                customerId: customerId,
+                productId: `gid://shopify/Product/${productId}`,
+                shop: "{{ shop.permanent_domain }}",
+                action,
+                variantId
+            }),
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.method === 'CREATE') {
+               button.querySelector("svg").classList.add("wishlisted");
+            } else {
+               button.querySelector("svg").classList.remove("wishlisted");
+            }
+        })
+        .catch(console.error);
+      }
+  
+      addWishlistButtons();
+    });
+</script>
+
+<!-- Wishlist Footer Icon -->
+<div id="wishlist-footer" class="wishlist-footer">
+  <svg
+    class="wishlist-footer-icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path
+      d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06 7.78 7.78 7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
+    </path>
+  </svg>
+</div>
+
+<!-- Wishlist Modal -->
+<div id="wishlist-modal" class="wishlist-modal">
+  <div class="wishlist-modal-content">
+    <span class="wishlist-close">&times;</span>
+    <h2>My Wishlist</h2>
+    <div id="wishlist-items" class="wishlist-grid">
+      <!-- Wishlist Products will be inserted here -->
+    </div>
+  </div>
+</div>
+
+<!-- Success Popup -->
+<div id="success-popup" class="success-popup">
+  <p>Product added to cart!</p>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const wishlistFooter = document.getElementById('wishlist-footer');
+    const wishlistModal = document.getElementById('wishlist-modal');
+    const wishlistClose = document.querySelector('.wishlist-close');
+    const wishlistContainer = document.getElementById('wishlist-items');
+
+    const customerId = '{{ customer.id }}';
+    const shop = '{{ shop.permanent_domain }}';
+
+    wishlistFooter.addEventListener('click', function () {
+      wishlistModal.style.display = 'block';
+      loadWishlist();
+    });
+
+    wishlistClose.addEventListener('click', function () {
+      wishlistModal.style.display = 'none';
+    });
+
+    window.addEventListener('click', function (event) {
+      if (event.target === wishlistModal) {
+        wishlistModal.style.display = 'none';
+      }
+    });
+
+    async function loadWishlist() {
+  try {
+    const wishlistRes = await fetch(`https://wishlist-icon.onrender.com/api/getwishlist?customerId=${customerId}&shop=${shop}`);
+    const wishlistData = await wishlistRes.json();
+
+    const tagRes = await fetch(`https://wishlist-icon.onrender.com/api/getProductTags?shop=${shop}`);
+    const configuredTags = await tagRes.json();
+
+    // Check if configuredTags or productTags is missing or empty
+    const tagNamesString = configuredTags?.productTags?.[0]?.tagNames || '';
+    const tagNamesArray = tagNamesString ? tagNamesString.split(',').map(tag => tag.trim()) : [];
+
+    fetchProductDetails(wishlistData.wishlist, tagNamesArray);
+  } catch (err) {
+    console.error('Error loading wishlist:', err);
+  }
+}
+
+
+
+    function fetchProductDetails(wishlistData, configuredTags) {
+      const ids = wishlistData.flatMap((item) => [item.productId, item.variantId]).filter(Boolean);
+      if (!ids.length) {
+        wishlistContainer.innerHTML = '<p>No items in your wishlist.</p>';
+        return;
+      }
+
+      fetch(`https://wishlist-icon.onrender.com/api/getProductDetails?ids=${ids.join(',')}&shop=${shop}`)
+        .then((res) => res.json())
+        .then((products) => {
+        console.log("Grouped Products by Tags:", products);
+
+      renderWishlistProducts(products, configuredTags);
+    })
+        .catch((err) => console.error('Error fetching product details:', err));
+    }
+
+    function renderWishlistProducts(products, configuredTags) {
+  console.log('Configured Tags:', configuredTags);
+  wishlistContainer.innerHTML = '';
+
+  // Step 1: Initialize tag groups
+  const groupedProducts = {};
+  configuredTags.forEach(tag => groupedProducts[tag] = []);
+  groupedProducts['others'] = [];
+
+  // Step 2: Group products into all matching tags
+    (products.result || []).forEach(product => {
+
+    const productTags = product.product?.tags || [];
+    let matched = false;
+
+    configuredTags.forEach(tag => {
+      if (productTags.includes(tag)) {
+        groupedProducts[tag].push(product);
+        matched = true;
+      }
+    });
+
+    if (!matched) {
+      groupedProducts['others'].push(product);
+    }
+  });
+
+  // Step 3: Render each group with heading and products
+  for (const [group, groupProducts] of Object.entries(groupedProducts)) {
+    if (groupProducts.length === 0) continue;
+
+    // Group heading
+    const groupHeading = document.createElement('h2');
+    groupHeading.innerText = group === 'others' ? 'Others' : `Tag: ${group}`;
+    wishlistContainer.appendChild(groupHeading);
+
+    // Render each product in the group
+    groupProducts.forEach(product => {
+      try {
+        const variantId = product.id?.split('/').pop();
+        const productId = product.product?.id?.split('/').pop();
+        const storeUrl = `https://${shop}/products/${product.product.handle}?variant=${variantId}`;
+
+        const item = document.createElement('div');
+        item.className = 'wishlist-item';
+
+        const closeBtn = document.createElement('span');
+        closeBtn.className = 'product-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.dataset.productId = productId;
+        closeBtn.dataset.variantId = variantId;
+        closeBtn.addEventListener('click', removeFromWishlist);
+
+        const imageLink = document.createElement('a');
+        imageLink.href = storeUrl;
+        imageLink.target = '_blank';
+
+        const image = document.createElement('img');
+        image.src = product.image?.url || 'https://via.placeholder.com/150';
+        image.alt = product.title || 'Product Image';
+        imageLink.appendChild(image);
+
+        const title = document.createElement('h3');
+        title.innerText = `${product.product?.title || ''} - ${product.title || ''}`;
+
+        const price = document.createElement('div');
+        price.className = 'price';
+        price.innerText = `${product.price?.amount || '0.00'} ${product.price?.currencyCode || ''}`;
+
+        const addToCartBtn = document.createElement('button');
+        addToCartBtn.className = 'add-to-cart';
+        addToCartBtn.innerText = 'Add to Cart';
+        addToCartBtn.dataset.variantId = variantId;
+        addToCartBtn.addEventListener('click', addToCart);
+
+        item.appendChild(closeBtn);
+        item.appendChild(imageLink);
+        item.appendChild(title);
+        item.appendChild(price);
+        item.appendChild(addToCartBtn);
+
+        wishlistContainer.appendChild(item);
+      } catch (err) {
+        console.error('Error rendering wishlist item:', err);
+      }
+    });
+  }
+}
+
+
+    function addToCart(event) {
+      const variantId = event.currentTarget.dataset.variantId;
+
+      fetch('/cart/add.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: variantId, quantity: 1 }),
+      })
+        .then((res) => res.json())
+        .then(() => {
+          // Show success popup
+          const successPopup = document.getElementById('success-popup');
+          successPopup.classList.add('show');
+
+          // Hide the popup after 3 seconds
+          setTimeout(() => {
+            successPopup.classList.remove('show');
+          }, 3000);
+          location.href = '/cart';
+        })
+        .catch((err) => console.error('Add to cart failed:', err));
+    }
+
+    function removeFromWishlist(event) {
+      const productId = 'gid://shopify/Product/' + event.currentTarget.dataset.productId;
+      const variantId = 'gid://shopify/ProductVariant/' + event.currentTarget.dataset.variantId;
+
+      // Log all the required data
+      console.log('Removing from wishlist:');
+      console.log('Product ID:', productId);
+      console.log('Variant ID:', variantId);
+      console.log('Customer ID:', customerId);
+      console.log('Shop:', shop);
+
+      fetch('https://wishlist-icon.onrender.com/api/getwishlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: customerId,
+          shop: shop,
+          productId: productId,
+          variantId: variantId,
+          action: 'DELETE',
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log('Response from removeFromWishlist:', data);
+          loadWishlist(); // Refresh wishlist
+        })
+        .catch((err) => console.error('Remove from wishlist failed:', err));
+    }
+  });
+</script>

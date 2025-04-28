@@ -1,0 +1,9 @@
+name = "Wishlist Icon"
+type = "theme"
+
+[access_scopes]
+unauthenticated_read_product_listings = true
+unauthenticated_read_product_tags = true
+unauthenticated_read_customers = true
+write_products = true
+read_products = true
