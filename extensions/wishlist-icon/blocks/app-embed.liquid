@@ -174,26 +174,32 @@
         wishlistModal.style.display = 'none';
       }
     });
-
     async function loadWishlist() {
-  try {
-    const wishlistRes = await fetch(`https://wishlist-icon.onrender.com/api/getwishlist?customerId=${customerId}&shop=${shop}`);
-    const wishlistData = await wishlistRes.json();
+      try {
+        const wishlistRes = await fetch(
+          `https://wishlist-icon.onrender.com/api/getwishlist?customerId=${customerId}&shop=${shop}`
+        );
+        const wishlistData = await wishlistRes.json();
+        const tagRes = await fetch(
+          `https://wishlist-icon.onrender.com/api/getProductTags?shop=${shop}`
+        );
+        const configuredTags = await tagRes.json();
+        console.log(configuredTags);
+        const productTags = configuredTags?.productTags?.[0] || {};
+        const tagNamesString = productTags.tagNames || '';
+        const tagNamesArray = tagNamesString ? tagNamesString.split(',').map((tag) => tag.trim()) : [];
+        const displayByTags = productTags?.displayByTags === false;
 
-    const tagRes = await fetch(`https://wishlist-icon.onrender.com/api/getProductTags?shop=${shop}`);
-    const configuredTags = await tagRes.json();
-
-    // Check if configuredTags or productTags is missing or empty
-    const tagNamesString = configuredTags?.productTags?.[0]?.tagNames || '';
-    const tagNamesArray = tagNamesString ? tagNamesString.split(',').map(tag => tag.trim()) : [];
-
-    fetchProductDetails(wishlistData.wishlist, tagNamesArray);
-  } catch (err) {
-    console.error('Error loading wishlist:', err);
-  }
-}
-
-
+        if (displayByTags || tagNamesArray.length === 0) {
+          const configuredTag = [];
+          fetchProductDetails(wishlistData.wishlist, configuredTag); // Fetch and display all products
+        } else {
+          fetchProductDetails(wishlistData.wishlist, tagNamesArray); // Fetch and display by tags
+        }
+      } catch (err) {
+        console.error('Error loading wishlist:', err);
+      }
+    }
 
     function fetchProductDetails(wishlistData, configuredTags) {
       const ids = wishlistData.flatMap((item) => [item.productId, item.variantId]).filter(Boolean);
@@ -201,106 +207,122 @@
         wishlistContainer.innerHTML = '<p>No items in your wishlist.</p>';
         return;
       }
-
-      fetch(`https://wishlist-icon.onrender.com/api/getProductDetails?ids=${ids.join(',')}&shop=${shop}`)
+      fetch(
+        `https://wishlist-icon.onrender.com/api/getProductDetails?ids=${ids.join(
+          ','
+        )}&shop=${shop}`
+      )
         .then((res) => res.json())
         .then((products) => {
-        console.log("Grouped Products by Tags:", products);
+          console.log('Grouped Products by Tags:', products);
 
-      renderWishlistProducts(products, configuredTags);
-    })
+          renderWishlistProducts(products, configuredTags);
+        })
         .catch((err) => console.error('Error fetching product details:', err));
     }
 
     function renderWishlistProducts(products, configuredTags) {
-  console.log('Configured Tags:', configuredTags);
-  wishlistContainer.innerHTML = '';
+      console.log('Configured Tags:', configuredTags);
+      wishlistContainer.innerHTML = '';
 
-  // Step 1: Initialize tag groups
-  const groupedProducts = {};
-  configuredTags.forEach(tag => groupedProducts[tag] = []);
-  groupedProducts['others'] = [];
-
-  // Step 2: Group products into all matching tags
-    (products.result || []).forEach(product => {
-
-    const productTags = product.product?.tags || [];
-    let matched = false;
-
-    configuredTags.forEach(tag => {
-      if (productTags.includes(tag)) {
-        groupedProducts[tag].push(product);
-        matched = true;
+      // If no tags, or displayByTags is false, render all products
+      if (configuredTags.length === 0 || configuredTags.some((tag) => tag.displayByTags === false)) {
+        renderProduct(products.result);
+        return;
       }
-    });
 
-    if (!matched) {
-      groupedProducts['others'].push(product);
+      // Step 1: Initialize tag groups
+      const groupedProducts = {};
+      configuredTags.forEach((tag) => (groupedProducts[tag] = []));
+      groupedProducts['others'] = [];
+
+      // Step 2: Group products into all matching tags
+      (products.result || []).forEach((product) => {
+        const productTags = product.product?.tags || [];
+        let matched = false;
+
+        configuredTags.forEach((tag) => {
+          if (productTags.includes(tag)) {
+            groupedProducts[tag].push(product);
+            matched = true;
+          }
+        });
+
+        if (!matched) {
+          groupedProducts['others'].push(product);
+        }
+      });
+
+      // Step 3: Render each group with heading and products
+      for (const [group, groupProducts] of Object.entries(groupedProducts)) {
+        if (groupProducts.length === 0) continue;
+
+        // Group heading
+        const groupHeading = document.createElement('h2');
+        groupHeading.innerText = group === 'others' ? 'Others' : `Tag: ${group}`;
+        wishlistContainer.appendChild(groupHeading);
+
+        renderProduct(groupProducts);
+      }
     }
-  });
 
-  // Step 3: Render each group with heading and products
-  for (const [group, groupProducts] of Object.entries(groupedProducts)) {
-    if (groupProducts.length === 0) continue;
-
-    // Group heading
-    const groupHeading = document.createElement('h2');
-    groupHeading.innerText = group === 'others' ? 'Others' : `Tag: ${group}`;
-    wishlistContainer.appendChild(groupHeading);
-
-    // Render each product in the group
-    groupProducts.forEach(product => {
-      try {
-        const variantId = product.id?.split('/').pop();
-        const productId = product.product?.id?.split('/').pop();
-        const storeUrl = `https://${shop}/products/${product.product.handle}?variant=${variantId}`;
-
-        const item = document.createElement('div');
-        item.className = 'wishlist-item';
-
-        const closeBtn = document.createElement('span');
-        closeBtn.className = 'product-close';
-        closeBtn.innerHTML = '&times;';
-        closeBtn.dataset.productId = productId;
-        closeBtn.dataset.variantId = variantId;
-        closeBtn.addEventListener('click', removeFromWishlist);
-
-        const imageLink = document.createElement('a');
-        imageLink.href = storeUrl;
-        imageLink.target = '_blank';
-
-        const image = document.createElement('img');
-        image.src = product.image?.url || 'https://via.placeholder.com/150';
-        image.alt = product.title || 'Product Image';
-        imageLink.appendChild(image);
-
-        const title = document.createElement('h3');
-        title.innerText = `${product.product?.title || ''} - ${product.title || ''}`;
-
-        const price = document.createElement('div');
-        price.className = 'price';
-        price.innerText = `${product.price?.amount || '0.00'} ${product.price?.currencyCode || ''}`;
-
-        const addToCartBtn = document.createElement('button');
-        addToCartBtn.className = 'add-to-cart';
-        addToCartBtn.innerText = 'Add to Cart';
-        addToCartBtn.dataset.variantId = variantId;
-        addToCartBtn.addEventListener('click', addToCart);
-
-        item.appendChild(closeBtn);
-        item.appendChild(imageLink);
-        item.appendChild(title);
-        item.appendChild(price);
-        item.appendChild(addToCartBtn);
-
-        wishlistContainer.appendChild(item);
-      } catch (err) {
-        console.error('Error rendering wishlist item:', err);
+    function renderProduct(products) {
+      console.log(products);
+      if (!Array.isArray(products)) {
+        console.error('renderProduct expects an array, but got:', products);
+        return; // Stop if it's not an array
       }
-    });
-  }
-}
 
+      products.forEach((product) => {
+        try {
+          const variantId = product.id?.split('/').pop();
+          const productId = product.product?.id?.split('/').pop();
+          const storeUrl = `https://${shop}/products/${product.product.handle}?variant=${variantId}`;
+
+          const item = document.createElement('div');
+          item.className = 'wishlist-item';
+
+          const closeBtn = document.createElement('span');
+          closeBtn.className = 'product-close';
+          closeBtn.innerHTML = '&times;';
+          closeBtn.dataset.productId = productId;
+          closeBtn.dataset.variantId = variantId;
+          closeBtn.addEventListener('click', removeFromWishlist);
+
+          const imageLink = document.createElement('a');
+          imageLink.href = storeUrl;
+          imageLink.target = '_blank';
+
+          const image = document.createElement('img');
+          image.src = product.image?.url || 'https://via.placeholder.com/150';
+          image.alt = product.title || 'Product Image';
+          imageLink.appendChild(image);
+
+          const title = document.createElement('h3');
+          title.innerText = `${product.product?.title || ''} - ${product.title || ''}`;
+
+          const price = document.createElement('div');
+          price.className = 'price';
+          price.innerText = `${product.price?.amount || '0.00'} ${product.price?.currencyCode || ''}`;
+
+          const addToCartBtn = document.createElement('button');
+          addToCartBtn.className = 'add-to-cart';
+          addToCartBtn.innerText = 'Add to Cart';
+          addToCartBtn.dataset.variantId = variantId;
+          addToCartBtn.addEventListener('click', addToCart);
+
+          item.appendChild(closeBtn);
+          item.appendChild(imageLink);
+          item.appendChild(title);
+          item.appendChild(price);
+          item.appendChild(addToCartBtn);
+
+          wishlistContainer.appendChild(item);
+        } catch (err) {
+          console.error('Error rendering wishlist item:', err);
+        }
+      });
+    }
 
     function addToCart(event) {
       const variantId = event.currentTarget.dataset.variantId;
